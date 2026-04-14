@@ -272,6 +272,14 @@ export class CRNetworkManager {
         });
         return;
       }
+      // When only protocol-level interception is enabled (e.g. for proxy auth) without
+      // user interception, requests are auto-continued in _onRequest without creating a
+      // RouteImpl. Redirects for such requests may not receive a matching
+      // Network.requestWillBeSent, so auto-continue them here to prevent hanging.
+      if (existingRequest && !existingRequest._originalRequestRoute && !this._userRequestInterceptionEnabled) {
+        sessionInfo.session._sendMayFail('Fetch.continueRequest', { requestId: event.requestId });
+        return;
+      }
       this._requestIdToRequestPausedEvent.set(requestId, { sessionInfo, event });
     }
   }

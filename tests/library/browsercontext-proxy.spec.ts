@@ -422,6 +422,55 @@ it('does launch without a port', async ({ contextFactory }) => {
   await context.close();
 });
 
+it('should not hang on redirect with proxy auth over HTTPS CONNECT tunnel', async ({ contextFactory, httpsServer, proxyServer }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/40194' });
+  httpsServer.setRoute('/redirect', (req, res) => {
+    res.writeHead(302, { location: '/target.html' });
+    res.end();
+  });
+  httpsServer.setRoute('/target.html', (req, res) => {
+    res.end('<html><title>Redirect target</title></html>');
+  });
+  proxyServer.forwardTo(httpsServer.PORT, { allowConnectRequests: true });
+  proxyServer.setAuthHandler(req => !!req.headers['proxy-authorization']);
+  const context = await contextFactory({
+    ignoreHTTPSErrors: true,
+    proxy: { server: proxyServer.HOST, username: 'user', password: 'secret' }
+  });
+  const page = await context.newPage();
+  // No page.route() — proxy credentials enable protocol-level interception.
+  // With a real proxy, the redirect's Fetch.requestPaused may arrive before
+  // Network.requestWillBeSent and must be auto-continued.
+  await page.goto('https://non-existent.com/redirect');
+  expect(await page.title()).toBe('Redirect target');
+  await context.close();
+});
+
+it('should not hang on chained redirects with proxy auth over HTTPS CONNECT tunnel', async ({ contextFactory, httpsServer, proxyServer }) => {
+  it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/40194' });
+  httpsServer.setRoute('/redirect1', (req, res) => {
+    res.writeHead(302, { location: '/redirect2' });
+    res.end();
+  });
+  httpsServer.setRoute('/redirect2', (req, res) => {
+    res.writeHead(302, { location: '/target.html' });
+    res.end();
+  });
+  httpsServer.setRoute('/target.html', (req, res) => {
+    res.end('<html><title>Redirect target</title></html>');
+  });
+  proxyServer.forwardTo(httpsServer.PORT, { allowConnectRequests: true });
+  proxyServer.setAuthHandler(req => !!req.headers['proxy-authorization']);
+  const context = await contextFactory({
+    ignoreHTTPSErrors: true,
+    proxy: { server: proxyServer.HOST, username: 'user', password: 'secret' }
+  });
+  const page = await context.newPage();
+  await page.goto('https://non-existent.com/redirect1');
+  expect(await page.title()).toBe('Redirect target');
+  await context.close();
+});
+
 it('should isolate proxy credentials between contexts on navigation', async ({ contextFactory, server }) => {
   it.info().annotations.push({ type: 'issue', description: 'https://github.com/microsoft/playwright/issues/31525' });
 
